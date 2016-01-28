@@ -1,0 +1,72 @@
+library(sp)
+library(rgdal)
+library(leaflet)
+
+# Download and extract the shp files
+download.file(url = 'http://www.ecuadorencifras.gob.ec/documentos/web-inec/Cartografia/2015/Clasificador_Geografico/2010_Censal/SHP.zip',destfile = 'SHP.zip', method = 'wget')
+unzip('SHP.zip',exdir = 'data',overwrite = T)
+# read the shp file to spatialdataframe provinces
+provinces <- readOGR("data/SHP/nxprovincias.shp",
+								 layer= "nxprovincias", verbose = FALSE)
+
+data2001 = read.csv("data/census2001.csv",header = TRUE, sep = ",")
+data2010= read.table("data/census2010.csv",header = TRUE, sep = ",")
+data2001$DPA_PROVIN <- sprintf("%02d", data2001$DPA_PROVIN)
+data2010$DPA_PROVIN <- sprintf("%02d", data2010$DPA_PROVIN)
+# data2010$DPA_PROVIN <- as.integer(data2010$DPA_PROVIN)
+allcensus = merge(x = data2010, y = data2001, by ="DPA_PROVIN", all.x = T)
+Demographic_change <- allcensus$Population_2010-allcensus$Population_2001
+alldata <-cbind(allcensus,Demographic_change)
+
+
+# read population file to data frame
+#mydata = read.csv("data/population.csv",header = TRUE, sep = ",")
+
+# Seperate all the feature of provinces
+pro <- as.character(provinces@data$DPA_DESPRO)
+pro_vector <- c(pro)
+seProvince <- subset(provinces, provinces@data$DPA_DESPRO %in% pro_vector)
+seProvince@data
+# Join the province and demogrophic tables
+seProvince <- merge(x = seProvince, y = alldata, by = "DPA_PROVIN", all.x = TRUE)
+seProvince@data
+# Assign the leaflet projection to the shapefile
+prj_string_WGS84 <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+seProvince84 <- spTransform(seProvince, prj_string_WGS84)
+
+
+
+# Load the histogram of demegraphic change
+hist(seProvince84@data$Demographic_change, breaks = c(-50000,0,51300,122500,184000,276000,370000),
+		 freq=T,main = "Demographic Change",xlim=c(-50000,370000),xlab = "Population",col ="grey84")
+
+# Add population information pupups
+prov_popup <- paste0("<strong>Province: </strong>", 
+										  seProvince84@data$DPA_DESPRO,
+										 "<br><strong>Population 2001: </strong>", 
+										 seProvince84@data$Population_2001,
+										 "<br><strong>Population 2010: </strong>", 
+										 seProvince84@data$Population_2010,
+											"<br><strong>Demographic Change: </strong>", 
+										  seProvince84@data$Demographic_change)
+
+# Assign colors to each province
+pal <- colorBin(
+	"Purples",
+	seProvince84@data$Demographic_change, bins = c(-50000,0,51300,122500,184000,276000,370000), pretty = TRUE
+)
+# Plot the map
+leaflet(seProvince84) %>%
+	addTiles()  %>%
+	addPolygons(
+		stroke = FALSE, fillOpacity = 0.7, smoothFactor = 0.5,
+		color = ~pal(seProvince84@data$Demographic_change),
+		popup = prov_popup
+	) %>%
+	addPolygons(fill=F,opacity = 0.2,weight = 1,color = "grey82") %>%
+	addLegend("bottomleft", pal = pal, values = seProvince84@data$Demographic_change,
+					title = "Demographic Change",
+					opacity = 1) 
+
+
+	
